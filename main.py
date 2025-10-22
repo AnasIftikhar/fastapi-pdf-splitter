@@ -1,44 +1,35 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
-import base64, os
+import base64, io
 from PyPDF2 import PdfReader, PdfWriter
-from io import BytesIO
 
 app = FastAPI()
 
 class PDFInput(BaseModel):
-    file: str  # base64 PDF string
+    file: str
+
+@app.get("/")
+def home():
+    return {"message": "FastAPI PDF Splitter is running successfully!"}
 
 @app.post("/split-base64")
-def split_pdf_base64(data: PDFInput):
-    try:
-        # Decode the base64 PDF
-        pdf_bytes = base64.b64decode(data.file)
-        pdf_reader = PdfReader(BytesIO(pdf_bytes))
+def split_pdf(input_data: PDFInput):
+    pdf_bytes = base64.b64decode(input_data.file)
+    pdf = PdfReader(io.BytesIO(pdf_bytes))
 
-        # Create output folder if not exists
-        output_folder = "output"
-        os.makedirs(output_folder, exist_ok=True)
+    pages_base64 = []
 
-        total_pages = len(pdf_reader.pages)
-        saved_files = []
+    for i, page in enumerate(pdf.pages, start=1):
+        writer = PdfWriter()
+        writer.add_page(page)
+        buffer = io.BytesIO()
+        writer.write(buffer)
+        buffer.seek(0)
+        b64_page = base64.b64encode(buffer.read()).decode('utf-8')
+        pages_base64.append(b64_page)
 
-        # Split and save each page as a PDF
-        for i in range(total_pages):
-            writer = PdfWriter()
-            writer.add_page(pdf_reader.pages[i])
-
-            file_path = os.path.join(output_folder, f"page_{i+1}.pdf")
-            with open(file_path, "wb") as f:
-                writer.write(f)
-
-            saved_files.append(file_path)
-
-        return {
-            "status": "success",
-            "total_pages": total_pages,
-            "saved_files": saved_files
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "success",
+        "total_pages": len(pages_base64),
+        "pages_base64": pages_base64
+    }
